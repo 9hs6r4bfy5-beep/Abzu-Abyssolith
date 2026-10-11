@@ -20,7 +20,12 @@ button-layout='close,minimize,maximize:'
 
 # --- GNOME Shell: Favorites, Extensions, and Shell Theme ---
 [org.gnome.shell]
-favorite-apps=['org.gnome.Nautilus.desktop', 'net.waterfox.waterfox.desktop', 'org.gnome.Console.desktop', 'com.valvesoftware.Steam.desktop', 'com.discordapp.Discord.desktop', 'org.gnome.Settings.desktop', 'hotline-navigator.desktop', 'snow.desktop', 'org.strawberrymusicplayer.strawberry.desktop', 'io.github.kolunmi.Bazaar.desktop', 'org.lyx.LyX.desktop', 'cuneiform-toggle.desktop']
+# AUDIT FIX: the Snow emulator desktop file is installed by install-snow.sh
+# as /usr/share/applications/snowemu.desktop (Name=Snow). The previous entry
+# here referenced a non-existent 'snow.desktop'; GNOME Shell silently drops
+# unresolvable .desktop names from the favorites list, so Snow never appeared
+# on the dock despite being shipped in the image.
+favorite-apps=['org.gnome.Nautilus.desktop', 'net.waterfox.waterfox.desktop', 'org.gnome.Console.desktop', 'com.valvesoftware.Steam.desktop', 'com.discordapp.Discord.desktop', 'org.gnome.Settings.desktop', 'hotline-navigator.desktop', 'snowemu.desktop', 'org.strawberrymusicplayer.strawberry.desktop', 'io.github.kolunmi.Bazaar.desktop', 'org.lyx.LyX.desktop', 'cuneiform-toggle.desktop']
 # NOTE: dash-to-dock@micxgx.gmail.com is deliberately NOT listed here.
 # Dash to Dock ships as the DISTRO package gnome-shell-extension-dash-to-dock
 # (see recipe.yml), whose installed UUID has differed across Fedora releases;

@@ -20,10 +20,22 @@ echo "  fuse3 version: $(pkg-config --modversion fuse3 2>/dev/null || echo 'NOT 
 
 # -----------------------------------------------------------------------------
 # Clone Apple2Pi.
+# AUDIT FIX: single-attempt clone -> retry loop with exponential backoff.
+# A transient GitHub failure previously aborted the whole image build here.
 # -----------------------------------------------------------------------------
 rm -rf /tmp/apple2pi
-if ! git clone --depth 1 https://github.com/dschmenk/apple2pi.git /tmp/apple2pi; then
-    echo "ERROR: Failed to clone Apple2Pi" >&2
+CLONE_OK=false
+for attempt in 1 2 3 4; do
+    if git clone --depth 1 https://github.com/dschmenk/apple2pi.git /tmp/apple2pi; then
+        CLONE_OK=true
+        break
+    fi
+    echo "  WARNING: apple2pi clone failed (attempt ${attempt}/4), retrying in $((attempt * 5))s..." >&2
+    rm -rf /tmp/apple2pi
+    sleep $((attempt * 5))
+done
+if [ "$CLONE_OK" != true ]; then
+    echo "ERROR: Failed to clone Apple2Pi after 4 attempts." >&2
     exit 1
 fi
 
@@ -71,9 +83,13 @@ ldd /tmp/apple2pi/src/fusea2pi | grep -E 'fuse|pthread' || true
 
 # -----------------------------------------------------------------------------
 # Install binaries and share files.
+# AUDIT FIX: the replacement Makefile now honours PREFIX (default
+# /usr/local). Pin it explicitly so an environment-level PREFIX leak from
+# another build stage cannot silently redirect the a2pi binaries elsewhere
+# and break the a2pi.service unit paths.
 # -----------------------------------------------------------------------------
 echo "  Installing..."
-make -C src install
+make -C src install PREFIX=/usr/local
 
 # -----------------------------------------------------------------------------
 # Install and enable a2pi.service.
@@ -87,16 +103,48 @@ make -C src install
 #
 # We create these manually because `systemctl` cannot run inside the
 # BlueBuild build container (no running systemd).
+#
+# AUDIT FIX: the previous check only looked for /usr/share/a2pi/a2pi.service
+# and merely WARNED when it was missing -- so a silent loss of the service
+# (upstream file rename/removal) shipped an image where a2pid never started.
+# Search both known locations; if none exists, ship our own fallback unit so
+# the feature never silently disappears, and fail loudly if even the
+# fallback cannot be written.
 # -----------------------------------------------------------------------------
-if [ -f /usr/share/a2pi/a2pi.service ]; then
-    ln -sf /usr/share/a2pi/a2pi.service /etc/systemd/system/a2pi.service
-    mkdir -p /etc/systemd/system/multi-user.target.wants
-    ln -sf /usr/share/a2pi/a2pi.service \
-        /etc/systemd/system/multi-user.target.wants/a2pi.service
-    echo "  Installed /etc/systemd/system/a2pi.service"
-    echo "  Enabled  /etc/systemd/system/multi-user.target.wants/a2pi.service"
-else
-    echo "  WARNING: /usr/share/a2pi/a2pi.service not found; service not enabled." >&2
+A2PI_UNIT=""
+for candidate in /usr/share/a2pi/a2pi.service /usr/lib/systemd/system/a2pi.service \
+                 /usr/local/lib/systemd/system/a2pi.service; do
+    if [ -f "$candidate" ]; then
+        A2PI_UNIT="$candidate"
+        break
+    fi
+done
+
+if [ -z "$A2PI_UNIT" ]; then
+    echo "  NOTE: upstream a2pi.service not found in any known location;" >&2
+    echo "        writing Abzu fallback unit to /usr/share/a2pi/a2pi.service" >&2
+    mkdir -p /usr/share/a2pi
+    cat > /usr/share/a2pi/a2pi.service <<'UNIT'
+[Unit]
+Description=Apple II Pi daemon (a2pid)
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/sbin/a2pid
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    A2PI_UNIT=/usr/share/a2pi/a2pi.service
 fi
+
+ln -sf "$A2PI_UNIT" /etc/systemd/system/a2pi.service
+mkdir -p /etc/systemd/system/multi-user.target.wants
+ln -sf "$A2PI_UNIT" \
+    /etc/systemd/system/multi-user.target.wants/a2pi.service
+echo "  Installed /etc/systemd/system/a2pi.service (from $A2PI_UNIT)"
+echo "  Enabled  /etc/systemd/system/multi-user.target.wants/a2pi.service"
 
 echo "--- Apple II Pi built and installed (fusea2pi included) ---"

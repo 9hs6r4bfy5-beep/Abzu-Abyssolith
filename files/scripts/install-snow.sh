@@ -23,8 +23,26 @@ export RUSTFLAGS="-C debuginfo=0 -C link-arg=-Wl,--no-keep-memory"
 
 echo "--- Building Snow Macintosh Emulator ---"
 
-# Clone the Snow repository
-git clone --depth 1 https://github.com/twvd/snow.git /tmp/snow
+# Clone the Snow repository.
+# AUDIT FIX: bare `git clone` with no retry aborted the whole image build on
+# a transient GitHub failure. Retry inline with exponential backoff; remove
+# the partial destination between attempts so git does not refuse to clone
+# into an existing directory.
+rm -rf /tmp/snow
+CLONE_OK=false
+for attempt in 1 2 3 4; do
+    if git clone --depth 1 https://github.com/twvd/snow.git /tmp/snow; then
+        CLONE_OK=true
+        break
+    fi
+    echo "  WARNING: snow clone failed (attempt ${attempt}/4), retrying in $((attempt * 5))s..." >&2
+    rm -rf /tmp/snow
+    sleep $((attempt * 5))
+done
+if [ "$CLONE_OK" != true ]; then
+    echo "ERROR: Failed to clone snow after 4 attempts." >&2
+    exit 1
+fi
 cd /tmp/snow
 
 # Build in release mode. We deliberately do NOT pass

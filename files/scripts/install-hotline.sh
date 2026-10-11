@@ -23,14 +23,34 @@ export RUSTFLAGS="-C debuginfo=0 -C link-arg=-Wl,--no-keep-memory"
 
 echo "--- Building Hotline Navigator ---"
 
-# Clone the repository
-git clone --depth 1 https://github.com/fuzzywalrus/hotline.git /tmp/hotline
+# Clone the repository.
+# AUDIT FIX: the bare `git clone` had no retry; one transient GitHub failure
+# aborted the whole image build. Retry with exponential backoff inline so
+# this script stays self-contained (BlueBuild runs each script in its own
+# layer; /tmp/files is only guaranteed for the repo files/ tree).
+rm -rf /tmp/hotline
+CLONE_OK=false
+for attempt in 1 2 3 4; do
+    if git clone --depth 1 https://github.com/fuzzywalrus/hotline.git /tmp/hotline; then
+        CLONE_OK=true
+        break
+    fi
+    echo "  WARNING: hotline clone failed (attempt ${attempt}/4), retrying in $((attempt * 5))s..." >&2
+    rm -rf /tmp/hotline
+    sleep $((attempt * 5))
+done
+if [ "$CLONE_OK" != true ]; then
+    echo "ERROR: Failed to clone hotline after 4 attempts." >&2
+    exit 1
+fi
 
 # Build the Tauri application
 cd /tmp/hotline/hotline-tauri
 
-# Install Node.js dependencies
-npm install
+# Install Node.js dependencies.
+# AUDIT FIX: npm install hits the public registry and was equally unprotected;
+# give it retries and bounded concurrency.
+npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-max-delay=30000
 
 # Build the frontend and compile the Rust binary.
 # We deliberately use --no-bundle: the script only needs the raw binary
