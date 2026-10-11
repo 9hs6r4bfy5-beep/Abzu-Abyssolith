@@ -337,8 +337,24 @@ echo "WhiteSur cursors installed."
 # -----------------------------------------------------------------------------
 echo "Installing Liquid Glass GNOME Shell Extension..."
 EXT_UUID="liquid-glass@thinkingcoding1231.gmail.com"
-rm -rf /tmp/liquid-glass
-git clone --depth 1 https://github.com/ryohsuke1231/liquid-glass.git /tmp/liquid-glass
+# AUDIT FIX: bare `git clone` with no retry; a transient GitHub failure here
+# aborted the entire image build (same class of failure already hardened
+# against for the WhiteSur downloads above). Retry with exponential backoff,
+# removing the partial destination between attempts.
+CLONE_OK=false
+for attempt in 1 2 3 4; do
+    rm -rf /tmp/liquid-glass
+    if git clone --depth 1 https://github.com/ryohsuke1231/liquid-glass.git /tmp/liquid-glass; then
+        CLONE_OK=true
+        break
+    fi
+    echo "  WARNING: liquid-glass clone failed (attempt ${attempt}/4), retrying in $((attempt * 5))s..." >&2
+    sleep $((attempt * 5))
+done
+if [ "$CLONE_OK" != true ]; then
+    echo "ERROR: Failed to clone liquid-glass extension after 4 attempts." >&2
+    exit 1
+fi
 mkdir -p "${GNOME_EXT_DIR}/${EXT_UUID}"
 cp -r /tmp/liquid-glass/${EXT_UUID}/* "${GNOME_EXT_DIR}/${EXT_UUID}/"
 rm -rf /tmp/liquid-glass

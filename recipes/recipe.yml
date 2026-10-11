@@ -280,6 +280,11 @@ modules:
       - install-fono.sh
       - install-icloud-linux.sh
       - install-cunai.sh
+      # AUDIT FIX: the chrony NTS drop-in in files/system/etc/chrony.conf.d/
+      # was inert because Fedora's chronyd only reads /etc/chrony.conf, and
+      # nothing ever added the required `include` directive. This script
+      # appends it (idempotently) so the NTS hardening actually applies.
+      - configure-chrony-nts.sh
       # Super Mario Bros. Remastered is no longer installed standalone; it is
       # seeded into Quiver's starter library (install-quiver.sh). The former
       # install-smb-remastered.sh script has been removed from files/scripts/.
